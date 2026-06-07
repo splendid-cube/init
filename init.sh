@@ -117,10 +117,10 @@ git_authed() {
 SETUP_DIR="$ROOT/$SETUP_REPO"
 SETUP_URL="https://github.com/$SETUP_OWNER/$SETUP_REPO.git"
 if [ -d "$SETUP_DIR/.git" ]; then
-  log "updating $SETUP_REPO…"
+  log "updating ${SETUP_REPO}…"
   git_authed -C "$SETUP_DIR" pull --ff-only --quiet || warn "could not fast-forward $SETUP_REPO"
 else
-  log "cloning $SETUP_OWNER/$SETUP_REPO…"
+  log "cloning $SETUP_OWNER/${SETUP_REPO}…"
   git_authed clone --quiet "$SETUP_URL" "$SETUP_DIR" \
     || die "could not clone $SETUP_OWNER/$SETUP_REPO — check access (token SSO-authorized for the org?)"
 fi
