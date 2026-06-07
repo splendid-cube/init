@@ -62,6 +62,29 @@ cask_ensure() {
   if brew list --cask --versions "$1" >/dev/null 2>&1; then ok "cask $1 present"
   else log "brew install --cask $1"; brew install --cask "$1"; fi
 }
+# Locate the VS Code CLI (`code`) — on PATH if the cask linked it, else in the app bundle.
+# `hash -r` so a `code` linked by a cask earlier in this same run is picked up.
+code_bin() {
+  hash -r 2>/dev/null || true
+  if command -v code >/dev/null 2>&1; then command -v code; return 0; fi
+  local c
+  for c in "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
+           "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"; do
+    [ -x "$c" ] && { printf '%s\n' "$c"; return 0; }
+  done
+  return 1
+}
+# Install a VS Code extension by id, unless it's already present.
+vscode_ext_ensure() {
+  local code; code="$(code_bin)" || true
+  [ -n "$code" ] || { warn "code CLI not found — skipping extension $1 (is the visual-studio-code cask installed?)"; return; }
+  if "$code" --list-extensions 2>/dev/null | grep -qixF -- "$1"; then
+    ok "extension $1 present"
+  else
+    log "code --install-extension $1"
+    "$code" --install-extension "$1" --force >/dev/null 2>&1 || warn "could not install extension $1"
+  fi
+}
 
 # --- 2. bootstrap tools ------------------------------------------------------
 for pkg in "${BOOTSTRAP_PKGS[@]}"; do brew_ensure "$pkg"; done
@@ -111,6 +134,8 @@ if [ -f "$DEPS" ]; then
     < <(yq '.homebrew.formulae[]' "$DEPS" 2>/dev/null)
   while IFS= read -r c; do [ -n "$c" ] && cask_ensure "$c"; done \
     < <(yq '.homebrew.casks[]' "$DEPS" 2>/dev/null)
+  while IFS= read -r e; do [ -n "$e" ] && vscode_ext_ensure "$e"; done \
+    < <(yq '.["vscode-plugins"][]' "$DEPS" 2>/dev/null)
   n="$(yq '(.shell // []) | length' "$DEPS" 2>/dev/null || echo 0)"
   i=0
   while [ "$i" -lt "$n" ]; do
