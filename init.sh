@@ -118,7 +118,17 @@ SETUP_DIR="$ROOT/$SETUP_REPO"
 SETUP_URL="https://github.com/$SETUP_OWNER/$SETUP_REPO.git"
 if [ -d "$SETUP_DIR/.git" ]; then
   log "updating ${SETUP_REPO}…"
-  git_authed -C "$SETUP_DIR" pull --ff-only --quiet || warn "could not fast-forward $SETUP_REPO"
+  # Pull the current branch from origin explicitly. Repos cloned by dev-env (gix)
+  # have an `origin` remote but no per-branch upstream tracking, so a bare
+  # `git pull` aborts with "no tracking information". Naming remote + branch
+  # sidesteps that while still fast-forwarding only.
+  branch="$(git -C "$SETUP_DIR" symbolic-ref --short -q HEAD || true)"
+  if [ -n "$branch" ]; then
+    git_authed -C "$SETUP_DIR" pull --ff-only --quiet origin "$branch" \
+      || warn "could not fast-forward $SETUP_REPO"
+  else
+    warn "could not fast-forward $SETUP_REPO (detached HEAD)"
+  fi
 else
   log "cloning $SETUP_OWNER/${SETUP_REPO}…"
   git_authed clone --quiet "$SETUP_URL" "$SETUP_DIR" \
