@@ -8,7 +8,7 @@ repo, which holds the `dev-env` CLI and the project manifest.
 ## Usage
 
 ```sh
-bash <(curl -fsSL https://raw.githubusercontent.com/splendid-cube/init/master/init.sh)
+bash <(curl -fsSL https://raw.githubusercontent.com/splendid-cube/init/main/init.sh)
 ```
 
 Optional target directory (else `$SPLENDIDCUBE_PROJECTS_DIR` or `~/Projects`):

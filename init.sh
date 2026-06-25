@@ -17,7 +17,7 @@
 #   7. run `dev-env` — clone/update/relocate every project per projects.yaml
 #
 # Fresh machine:
-#   bash <(curl -fsSL https://raw.githubusercontent.com/splendid-cube/init/master/init.sh) [ROOT_DIR]
+#   bash <(curl -fsSL https://raw.githubusercontent.com/splendid-cube/init/main/init.sh) [ROOT_DIR]
 #
 # Non-interactive (CI): export GH_TOKEN=… first; pass ROOT_DIR as needed.
 # Root precedence: arg > $SPLENDIDCUBE_PROJECTS_DIR > ~/Projects
