@@ -6,15 +6,20 @@
 # repo so it needs no auth to fetch; it then authenticates and pulls the PRIVATE
 # `setup` repo, which holds the dev-env Rust CLI and the project manifest.
 #
-#   1. install Homebrew (if missing)
-#   2. install the bootstrap tools: git, yq
+#   1. install Homebrew (if missing; also installs the Xcode Command Line Tools)
+#   2. install git (to clone setup) + cmake/pkg-config (native build toolchain)
 #   3. authenticate:
 #        * if $GH_TOKEN / $GITHUB_TOKEN is set, use it (never persisted to disk)
 #        * otherwise install gh and run `gh auth login` (credential-helper fallback)
 #   4. clone/update the private `setup` repo into <root>/setup
-#   5. install everything in setup/dependencies.yaml (incl. the Rust toolchain)
+#   5. install the Rust toolchain — the only extra tool init needs to build the CLI
 #   6. `make install` — compile and copy `dev-env` to /usr/local/bin
-#   7. run `dev-env` — clone/update/relocate every project per projects.yaml
+#   7. run `dev-env` — installs the REST of dependencies.yaml (its deps phase),
+#      then clones/updates/relocates every project and sets up AI config
+#
+# init installs only the minimum to build and run `dev-env`; `dev-env` then owns
+# the full dependency set (dependencies.yaml) — brew formulae/casks, VS Code
+# extensions and shell steps — installing them idempotently on that first run.
 #
 # Fresh machine:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/splendid-cube/init/main/init.sh) [ROOT_DIR]
@@ -27,7 +32,12 @@ set -euo pipefail
 SETUP_OWNER="splendid-cube"
 SETUP_REPO="setup"
 DEFAULT_ROOT="$HOME/Projects"
-BOOTSTRAP_PKGS=(git yq)
+# Only what's needed to fetch + build dev-env; the rest of dependencies.yaml is
+# installed by dev-env itself on first run. git clones setup; cmake + pkg-config
+# are a safety margin so the Rust build has a native-dep toolchain on a truly
+# fresh machine (dev-env itself uses rustls, but this costs little and de-risks
+# the one build that must succeed before dev-env can take over).
+BOOTSTRAP_PKGS=(git cmake pkg-config)
 
 # --- logging ----------------------------------------------------------------
 _c() { [ -t 1 ] && printf '\033[%sm' "$1" || true; }
@@ -57,33 +67,6 @@ ok "homebrew ready"
 brew_ensure() {
   if brew list --formula --versions "$1" >/dev/null 2>&1; then ok "$1 present"
   else log "brew install $1"; brew install "$1"; fi
-}
-cask_ensure() {
-  if brew list --cask --versions "$1" >/dev/null 2>&1; then ok "cask $1 present"
-  else log "brew install --cask $1"; brew install --cask "$1"; fi
-}
-# Locate the VS Code CLI (`code`) — on PATH if the cask linked it, else in the app bundle.
-# `hash -r` so a `code` linked by a cask earlier in this same run is picked up.
-code_bin() {
-  hash -r 2>/dev/null || true
-  if command -v code >/dev/null 2>&1; then command -v code; return 0; fi
-  local c
-  for c in "/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code" \
-           "$HOME/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"; do
-    [ -x "$c" ] && { printf '%s\n' "$c"; return 0; }
-  done
-  return 1
-}
-# Install a VS Code extension by id, unless it's already present.
-vscode_ext_ensure() {
-  local code; code="$(code_bin)" || true
-  [ -n "$code" ] || { warn "code CLI not found — skipping extension $1 (is the visual-studio-code cask installed?)"; return; }
-  if "$code" --list-extensions 2>/dev/null | grep -qixF -- "$1"; then
-    ok "extension $1 present"
-  else
-    log "code --install-extension $1"
-    "$code" --install-extension "$1" --force >/dev/null 2>&1 || warn "could not install extension $1"
-  fi
 }
 
 # --- 2. bootstrap tools ------------------------------------------------------
@@ -136,33 +119,19 @@ else
 fi
 cd "$SETUP_DIR"
 
-# --- 5. dependencies.yaml ----------------------------------------------------
-DEPS="$SETUP_DIR/dependencies.yaml"
-if [ -f "$DEPS" ]; then
-  log "installing dependencies from dependencies.yaml…"
-  while IFS= read -r f; do [ -n "$f" ] && brew_ensure "$f"; done \
-    < <(yq '.homebrew.formulae[]' "$DEPS" 2>/dev/null)
-  while IFS= read -r c; do [ -n "$c" ] && cask_ensure "$c"; done \
-    < <(yq '.homebrew.casks[]' "$DEPS" 2>/dev/null)
-  while IFS= read -r e; do [ -n "$e" ] && vscode_ext_ensure "$e"; done \
-    < <(yq '.["vscode-plugins"][]' "$DEPS" 2>/dev/null)
-  n="$(yq '(.shell // []) | length' "$DEPS" 2>/dev/null || echo 0)"
-  i=0
-  while [ "$i" -lt "$n" ]; do
-    name="$(yq ".shell[$i].name" "$DEPS")"
-    cmd="$(yq ".shell[$i].command" "$DEPS")"
-    check="$(yq ".shell[$i].check // \"\"" "$DEPS")"
-    if [ -n "$check" ] && bash -c "$check" >/dev/null 2>&1; then ok "$name present"
-    else log "shell setup: $name"; bash -c "$cmd"; fi
-    i=$((i + 1))
-  done
-else
-  warn "no dependencies.yaml in $SETUP_REPO — skipping dependency install"
+# --- 5. Rust toolchain -------------------------------------------------------
+# The last tool init installs. Everything else in dependencies.yaml (yq, jq, the
+# casks, VS Code extensions, …) is installed by `dev-env` on its first run,
+# idempotently. dev-env uses rustls (no OpenSSL); the C toolchain from the Xcode
+# CLT plus cmake/pkg-config from the bootstrap step above cover any native build.
+if ! command -v cargo >/dev/null 2>&1; then
+  log "installing the Rust toolchain (rustup)…"
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 fi
-
 # Make cargo available if rustup just installed it.
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
-command -v cargo >/dev/null 2>&1 || die "cargo not on PATH after dependency install"
+command -v cargo >/dev/null 2>&1 || die "cargo not on PATH after install"
+ok "rust toolchain ready"
 
 # --- 6. build + install the CLI ---------------------------------------------
 log "building and installing dev-env (make install — may prompt for sudo)…"
